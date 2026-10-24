@@ -1,1 +1,55 @@
-
+{
+ "name": "Build Quran TV APK",
+ "on": {
+  "workflow_dispatch": {},
+  "push": {
+   "branches": [
+    "main"
+   ]
+  }
+ },
+ "permissions": {
+  "contents": "write"
+ },
+ "jobs": {
+  "build": {
+   "runs-on": "ubuntu-latest",
+   "steps": [
+    {
+     "uses": "actions/checkout@v4"
+    },
+    {
+     "name": "Write project files",
+     "run": "mkdir -p .\ncat > settings.gradle.kts <<'XEOF'\npluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }\ndependencyResolutionManagement { repositories { google(); mavenCentral() } }\nrootProject.name = \"QuranTV\"\ninclude(\":app\")\nXEOF\nmkdir -p .\ncat > build.gradle.kts <<'XEOF'\nplugins {\n    id(\"com.android.application\") version \"8.5.2\" apply false\n    id(\"org.jetbrains.kotlin.android\") version \"2.0.20\" apply false\n    id(\"org.jetbrains.kotlin.plugin.compose\") version \"2.0.20\" apply false\n}\nXEOF\nmkdir -p .\ncat > gradle.properties <<'XEOF'\nandroid.useAndroidX=true\norg.gradle.jvmargs=-Xmx2g\nXEOF\nmkdir -p app\ncat > app/build.gradle.kts <<'XEOF'\nplugins {\n    id(\"com.android.application\")\n    id(\"org.jetbrains.kotlin.android\")\n    id(\"org.jetbrains.kotlin.plugin.compose\")\n}\nandroid {\n    namespace = \"com.quran.tv\"\n    compileSdk = 34\n    defaultConfig {\n        applicationId = \"com.quran.tv\"\n        minSdk = 28\n        targetSdk = 34\n        versionCode = 1\n        versionName = \"1.0\"\n    }\n    compileOptions {\n        sourceCompatibility = JavaVersion.VERSION_17\n        targetCompatibility = JavaVersion.VERSION_17\n    }\n    kotlinOptions { jvmTarget = \"17\" }\n    buildFeatures { compose = true }\n}\ndependencies {\n    implementation(platform(\"androidx.compose:compose-bom:2024.09.00\"))\n    implementation(\"androidx.compose.ui:ui\")\n    implementation(\"androidx.compose.foundation:foundation\")\n    implementation(\"androidx.compose.material3:material3\")\n    implementation(\"androidx.activity:activity-compose:1.9.2\")\n    implementation(\"androidx.media3:media3-exoplayer:1.4.1\")\n    implementation(\"androidx.media3:media3-exoplayer-hls:1.4.1\")\n    implementation(\"androidx.media3:media3-ui:1.4.1\")\n}\nXEOF\nmkdir -p app/src/main\ncat > app/src/main/AndroidManifest.xml <<'XEOF'\n<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<manifest xmlns:android=\"http://
+schemas.android.com/apk/res/android\">\n    <uses-feature android:name=\"android.software.leanback\" android:required=\"false\"/>\n    <uses-feature android:name=\"android.hardware.touchscreen\" android:required=\"false\"/>\n    <uses-permission android:name=\"android.permission.INTERNET\"/>\n    <application\n        android:label=\"Quran Reader\"\n        android:icon=\"@drawable/banner\"\n        android:banner=\"@drawable/banner\"\n        android:theme=\"@android:style/Theme.Material.NoActionBar\">\n        <activity android:name=\".MainActivity\" android:exported=\"true\">\n            <intent-filter>\n                <action android:name=\"android.intent.action.MAIN\"/>\n                <category android:name=\"android.intent.category.LAUNCHER\"/>\n                <category android:name=\"android.intent.category.LEANBACK_LAUNCHER\"/>\n            </intent-filter>\n        </activity>\n    </application>\n</manifest>\nXEOF\nmkdir -p app/src/main/res/drawable\ncat > app/src/main/res/drawable/banner.xml <<'XEOF'\n<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<shape xmlns:android=\"http://schemas.android.com/apk/res/android\" android:shape=\"rectangle\">\n    <solid android:color=\"#0F2A22\"/>\n    <stroke android:width=\"6dp\" android:color=\"#D4A94F\"/>\n    <size android:width=\"320dp\" android:height=\"180dp\"/>\n</shape>\nXEOF\nmkdir -p app/src/main/java/com/quran/tv\ncat > app/src/main/java/com/quran/tv/MainActivity.kt <<'XEOF'\npackage com.quran.tv\n\nimport android.os.Bundle\nimport androidx.activity.ComponentActivity\nimport androidx.activity.compose.setContent\nimport androidx.compose.foundation.border\nimport androidx.compose.foundation.focusable\nimport androidx.compose.foundation.layout.*\nimport androidx.compose.foundation.lazy.LazyColumn\nimport androidx.compose.foundation.lazy.items\nimport androidx.compose.foundation.lazy.itemsIndexed\nimport androidx.compose.foundation.shape.RoundedCornerShape\nimport androidx.compose.material3.*\nimport androidx.
+compose.runtime.*\nimport androidx.compose.ui.Modifier\nimport androidx.compose.ui.focus.onFocusChanged\nimport androidx.compose.ui.graphics.Color\nimport androidx.compose.ui.platform.LocalContext\nimport androidx.compose.ui.unit.dp\nimport androidx.compose.ui.unit.sp\nimport androidx.compose.ui.viewinterop.AndroidView\nimport androidx.media3.common.MediaItem\nimport androidx.media3.exoplayer.ExoPlayer\nimport androidx.media3.ui.PlayerView\nimport kotlinx.coroutines.Dispatchers\nimport kotlinx.coroutines.withContext\nimport org.json.JSONObject\nimport java.net.HttpURLConnection\nimport java.net.URL\n\n// ضع رابط البث المباشر الرسمي (HLS .m3u8) هنا\nconst val LIVE_URL = \"PUT_OFFICIAL_HLS_URL_HERE\"\nval GOLD = Color(0xFFD4A94F)\n\ndata class SurahInfo(val n: Int, val name: String)\n\nfun httpGet(u: String): String {\n    val c = URL(u).openConnection() as HttpURLConnection\n    c.connectTimeout = 15000\n    c.readTimeout = 15000\n    return c.inputStream.bufferedReader().use { it.readText() }\n}\n\nclass MainActivity : ComponentActivity() {\n    override fun onCreate(savedInstanceState: Bundle?) {\n        super.onCreate(savedInstanceState)\n        setContent {\n            MaterialTheme(colorScheme = darkColorScheme()) {\n                Surface(Modifier.fillMaxSize()) { App() }\n            }\n        }\n    }\n}\n\n@Composable\nfun TvBtn(text: String, onClick: () -> Unit) {\n    var f by remember { mutableStateOf(false) }\n    Button(\n        onClick = onClick,\n        modifier = Modifier\n            .onFocusChanged { f = it.isFocused }\n            .border(3.dp, if (f) GOLD else Color.Transparent, RoundedCornerShape(12.dp))\n    ) { Text(text, fontSize = 20.sp) }\n}\n\n@Composable\nfun App() {\n    val ctx = LocalContext.current\n    val player = remember { ExoPlayer.Builder(ctx).build() }\n    DisposableEffect(Unit) { onDispose { player.release() } }\n\n    var surahs by remember { mutableStateOf(listOf<SurahInfo>()) }\n    var ayahs by remember { mutableSt
+ateOf(listOf<String>()) }\n    var sel by remember { mutableStateOf(1) }\n    var fs by remember { mutableStateOf(32) }\n    var live by remember { mutableStateOf(false) }\n    var err by remember { mutableStateOf<String?>(null) }\n\n    LaunchedEffect(Unit) {\n        withContext(Dispatchers.IO) {\n            try {\n                val arr = JSONObject(httpGet(\"https://api.alquran.cloud/v1/surah\")).getJSONArray(\"data\")\n                surahs = List(arr.length()) { i ->\n                    val o = arr.getJSONObject(i)\n                    SurahInfo(o.getInt(\"number\"), o.getString(\"name\").removePrefix(\"سُورَةُ \"))\n                }\n            } catch (e: Exception) { err = \"تعذّر تحميل قائمة السور. تحقق من الإنترنت.\" }\n        }\n    }\n    LaunchedEffect(sel) {\n        ayahs = emptyList()\n        withContext(Dispatchers.IO) {\n            try {\n                val a = JSONObject(httpGet(\"https://api.alquran.cloud/v1/surah/$sel/quran-uthmani\"))\n                    .getJSONObject(\"data\").getJSONArray(\"ayahs\")\n                ayahs = List(a.length()) { i -> a.getJSONObject(i).getString(\"text\") }\n            } catch (e: Exception) { err = \"تعذّر تحميل السورة.\" }\n        }\n    }\n\n    Row(Modifier.fillMaxSize().padding(16.dp)) {\n        LazyColumn(Modifier.width(300.dp)) {\n            items(surahs) { s ->\n                TvBtn(\"${s.n}. ${s.name}\") { sel = s.n; live = false; err = null }\n            }\n        }\n        Spacer(Modifier.width(16.dp))\n        Column(Modifier.weight(1f)) {\n            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {\n                TvBtn(\"تشغيل التلاوة\") {\n                    live = false\n                    player.setMediaItem(MediaItem.fromUri(\"https://cdn.islamic.network/quran/audio-surah/128/ar.alafasy/$sel.mp3\"))\n                    player.prepare(); player.playWhenReady = true\n                }\n                TvBtn(\"إيقاف\") { player.pause() }\n                TvBtn(\"بث مباشر\") {\n                    if (LIVE_URL.startsWith(\"PUT_\")) {\n                        err = \"ضع رابط البث الرسمي في LIVE_URL داخل الكود.\"\n                    } else {\n                        live = true\n                        player.setMediaItem(MediaItem.fromUri(LIVE_URL))\n                        player.prepare(); player.playWhenReady = true\n                    }\n                }\n                TvBtn(\"A+\") { fs = (fs + 4).coerceAtMost(64) }\n                TvBtn(\"A-\") { fs = (fs - 4).coerceAtLeast(20) }\n            }\n            err?.let { Text(it, color = GOLD, modifier = Modifier.padding(8.dp)) }\n            if (live) {\n                AndroidView(\n                    modifier = Modifier.fillMaxWidth().height(300.dp),\n                    factory = { PlayerView(it).apply { this.player = player } }\n                )\n            }\n            LazyColumn(Modifier.fillMaxSize()) {\n                itemsIndexed(ayahs) { i, t ->\n                    var f by remember { mutableStateOf(false) }\n                    Text(\n                        \"$t \\uFD3F${i + 1}\\uFD3E\",\n                        fontSize = fs.sp,\n                        lineHeight = (fs * 1.9).sp,\n                        modifier = Modifier\n                            .fillMaxWidth()\n                            .onFocusChanged { f = it.isFocused }\n                            .focusable()\n                            .border(3.dp, if (f) GOLD else Color.Transparent, RoundedCornerShape(10.dp))\n                            .padding(10.dp)\n                    )\n                }\n            }\n        }\n    }\n}\nXEOF\n"
+    },
+    {
+     "uses": "actions/setup-java@v4",
+     "with": {
+      "distribution": "temurin",
+      "java-version": "17"
+     }
+    },
+    {
+     "uses": "gradle/actions/setup-gradle@v4",
+     "with": {
+      "gradle-version": "8.9"
+     }
+    },
+    {
+     "name": "Build",
+     "run": "gradle assembleDebug --no-daemon"
+    },
+    {
+     "name": "Publish release",
+     "env": {
+      "GH_TOKEN": "${{ github.token }}"
+     },
+     "run": "cp app/build/outputs/apk/debug/app-debug.apk QuranTV.apk\ngh release create \"v${{ github.run_number }}\" QuranTV.apk --title \"QuranTV v${{ github.run_number }}\" --notes APK\n"
+    }
+   ]
+  }
+ }
+}
